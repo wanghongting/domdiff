@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>Document</title>
+</head>
+
+<body>
+    <script>
+      //  vue的diff算法用于视图更新， 也可以说是dom更新。 俗话说有对比才有差距， vue也是通过将dom前后进行对比， 再进行更新。 dom是树状结构， 因此对比过程中需要先将它化成对象的形式（ 虚拟dom） 如：
+
+        var Vnode = {
+            tag: 'div',
+            children: [{
+                tag: 'p',
+                text: '123'
+            }]
+        };
+       // 对比是逐层进行的， 源码中调用patch方法（ 给dom打补丁） patch方法中首先判断两个节点是否相同：
+
+        function sameVnode(a, b) {
+            return (
+                a.key === b.key && // key值
+                a.tag === b.tag && // 标签名
+                a.isComment === b.isComment && // 是否为注释节点
+                // 是否都定义了data，data包含一些具体信息，例如onclick , style
+                isDef(a.data) === isDef(b.data) &&
+                sameInputType(a, b) // 当标签是<input>的时候，type必须相同
+            )
+        }
+        //如果不相同， 就直接用新的节点替换旧节点。 如果相同， 就要进一步判断， 判断是否需要替换子节点， 如果替换又需要替换哪些子节点。 源码中调用patchVnode方法：
+      function  patchVnode(oldVnode, vnode) {
+            const el = vnode.el = oldVnode.el
+            let i, oldCh = oldVnode.children,
+                ch = vnode.children
+            if (oldVnode === vnode) return // 两个节点指向的对象相同直接返回
+            if (oldVnode.text !== null && vnode.text !== null && oldVnode.text !== vnode.text) {
+                api.setTextContent(el, vnode.text) // 两个节点都有文本，而且不相同，直接替换
+            } else {
+                updateEle(el, vnode, oldVnode)
+                if (oldCh && ch && oldCh !== ch) {
+                    updateChildren(el, oldCh, ch) // 两个节点都有子节点，进一步判断如何更新子节点
+                } else if (ch) {
+                    createEle(vnode) //create el's children dom
+                } else if (oldCh) {
+                    api.removeChildren(el)
+                }
+            }
+        }
+        //其他情况都比较好处理， 但是当两个节点都有子节点时， 判断的情况稍微多一点。 updateChildren源码：
+       function updateChildren(parentElm, oldCh, newCh) {
+            let oldStartIdx = 0,
+                newStartIdx = 0
+            let oldEndIdx = oldCh.length - 1
+            let oldStartVnode = oldCh[0]
+            let oldEndVnode = oldCh[oldEndIdx]
+            let newEndIdx = newCh.length - 1
+            let newStartVnode = newCh[0]
+            let newEndVnode = newCh[newEndIdx]
+            let oldKeyToIdx
+            let idxInOld
+            let elmToMove
+            let before
+            while (oldStartIdx <= oldEndIdx && newStartIdx <= newEndIdx) {
+                if (oldStartVnode == null) { // 对于vnode.key的比较，会把oldVnode = null
+                    oldStartVnode = oldCh[++oldStartIdx]
+                } else if (oldEndVnode == null) {
+                    oldEndVnode = oldCh[--oldEndIdx]
+                } else if (newStartVnode == null) {
+                    newStartVnode = newCh[++newStartIdx]
+                } else if (newEndVnode == null) {
+                    newEndVnode = newCh[--newEndIdx]
+                } else if (sameVnode(oldStartVnode, newStartVnode)) {
+                    patchVnode(oldStartVnode, newStartVnode)
+                    oldStartVnode = oldCh[++oldStartIdx]
+                    newStartVnode = newCh[++newStartIdx]
+                } else if (sameVnode(oldEndVnode, newEndVnode)) {
+                    patchVnode(oldEndVnode, newEndVnode)
+                    oldEndVnode = oldCh[--oldEndIdx]
+                    newEndVnode = newCh[--newEndIdx]
+                } else if (sameVnode(oldStartVnode, newEndVnode)) {
+                    patchVnode(oldStartVnode, newEndVnode)
+                    api.insertBefore(parentElm, oldStartVnode.el, api.nextSibling(oldEndVnode.el))
+                    oldStartVnode = oldCh[++oldStartIdx]
+                    newEndVnode = newCh[--newEndIdx]
+                } else if (sameVnode(oldEndVnode, newStartVnode)) {
+                    patchVnode(oldEndVnode, newStartVnode)
+                    api.insertBefore(parentElm, oldEndVnode.el, oldStartVnode.el)
+                    oldEndVnode = oldCh[--oldEndIdx]
+                    newStartVnode = newCh[++newStartIdx]
+                } else {
+                    // 使用key时的比较
+                    if (oldKeyToIdx === undefined) {
+                        oldKeyToIdx = createKeyToOldIdx(oldCh, oldStartIdx, oldEndIdx) // 有key生成index表
+                    }
+                    idxInOld = oldKeyToIdx[newStartVnode.key]
+                    if (!idxInOld) {
+                        api.insertBefore(parentElm, createEle(newStartVnode).el, oldStartVnode.el)
+                        newStartVnode = newCh[++newStartIdx]
+                    } else {
+                        elmToMove = oldCh[idxInOld]
+                        if (elmToMove.sel !== newStartVnode.sel) {
+                            api.insertBefore(parentElm, createEle(newStartVnode).el, oldStartVnode.el)
+                        } else {
+                            patchVnode(elmToMove, newStartVnode)
+                            oldCh[idxInOld] = null
+                            api.insertBefore(parentElm, elmToMove.el, oldStartVnode.el)
+                        }
+                        newStartVnode = newCh[++newStartIdx]
+                    }
+                }
+            }
+            if (oldStartIdx > oldEndIdx) {
+                before = newCh[newEndIdx + 1] == null ? null : newCh[newEndIdx + 1].el
+                addVnodes(parentElm, before, newCh, newStartIdx, newEndIdx)
+            } else if (newStartIdx > newEndIdx) {
+                removeVnodes(parentElm, oldCh, oldStartIdx, oldEndIdx)
+            }
+        }
+    </script>
+
+
+</body>
+
+</html>
